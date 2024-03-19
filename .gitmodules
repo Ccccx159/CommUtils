@@ -1,0 +1,16 @@
+[submodule "3rdparty/googletest"]
+	path = 3rdparty/googletest
+	url = https://github.com/google/googletest.git
+	branch = main
+[submodule "3rdparty/fmt"]
+	path = 3rdparty/fmt
+	url = https://github.com/fmtlib/fmt.git
+[submodule "3rdparty/spdlog"]
+	path = 3rdparty/spdlog
+	url = https://github.com/gabime/spdlog.git
+[submodule "3rdparty/concurrentqueue"]
+	path = 3rdparty/concurrentqueue
+	url = https://github.com/cameron314/concurrentqueue.git
+[submodule "3rdparty/nlohmann_json"]
+	path = 3rdparty/nlohmann_json
+	url = https://github.com/nlohmann/json.git
