@@ -1,0 +1,8 @@
+**/.vscode/
+**/.cache/
+**/.tmp/
+**/*.o
+**/build/
+**/artifacts/
+/tools/*
+!/tools/*.tar.*
