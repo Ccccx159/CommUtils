@@ -23,7 +23,7 @@ class FileOperate {
    * @param f The path of the file to check.
    * @return true if the file exists, false otherwise.
    */
-  bool FileIsExist(const std::string& f) {
+  bool IsExist(const std::string& f) {
     struct stat buf;
     if (0 != stat(f.c_str(), &buf)) {
       LOG(WARNING) << fmt::format("file {} is NOT Existed", f);
@@ -42,8 +42,8 @@ class FileOperate {
    * @param f The name of the file to be created.
    * @return 0 if the file is created successfully, -1 otherwise.
    */
-  int FileCreateEmpty(const std::string& f) {
-    if (true == FileIsExist(f)) {
+  int CreateEmpty(const std::string& f) {
+    if (true == IsExist(f)) {
       LOG(ERROR) << "file " << f << " is already existed!";
       return -1;
     }
@@ -76,7 +76,7 @@ class FileOperate {
    * default is "regex").
    * @return `true` if the file is found, `false` otherwise.
    */
-  bool FileSearchRecursively(std::string& fp, const std::string& f,
+  bool SearchRecursively(std::string& fp, const std::string& f,
                              const std::string& d, int depth = 1,
                              const std::string& pattern = "regex") {
     if (depth <= 0) return false;
@@ -94,7 +94,7 @@ class FileOperate {
       }
       if (end->d_type == DT_DIR) {
         std::string nextDir = curDir + end->d_name;
-        if (true == FileSearchRecursively(fp, f, nextDir, depth - 1, pattern)) {
+        if (true == SearchRecursively(fp, f, nextDir, depth - 1, pattern)) {
           closedir(fDir);
           return true;
         }
@@ -133,7 +133,7 @@ class FileOperate {
    * @return The number of characters read from the file, or -1 if an error
    * occurred.
    */
-  int FileReadFrom(const std::string& f, json& buf,
+  int ReadFrom(const std::string& f, json& buf,
                    std::ios::openmode m = std::ios::in) {
     std::ifstream _if(f, m);
     if (!_if.is_open()) {
@@ -156,7 +156,7 @@ class FileOperate {
    * @return The number of characters read from the file, or -1 if an error
    * occurred.
    */
-  int FileReadFrom(const std::string& f, std::string& buf,
+  int ReadFrom(const std::string& f, std::string& buf,
                    std::ios::openmode m = std::ios::in) {
     std::ifstream _if(f, m);
     if (!_if.is_open()) {
@@ -179,7 +179,7 @@ class FileOperate {
    * @param f The file name with the suffix.
    * @return The file name without the suffix.
    */
-  std::string FileGetNameWithoutSuffix(const std::string& f) {
+  std::string GetNameWithoutSuffix(const std::string& f) {
     std::string name;
     std::string head;
     size_t pos = f.rfind('/') == f.npos ? 0 : f.rfind('/') + 1;
@@ -203,7 +203,7 @@ class FileOperate {
    * @param f The file path.
    * @return The suffix of the file.
    */
-  std::string FileGetSuffix(const std::string& f) {
+  std::string GetSuffix(const std::string& f) {
     std::string suffix;
     size_t pos = f.rfind('/') == f.npos ? 0 : f.rfind('/') + 1;
     suffix = f.substr(pos, f.length() - pos);
@@ -228,7 +228,7 @@ class FileOperate {
    * @param keyword The keyword to search for in the file names (optional).
    * @return A vector of strings containing the names of the matching files.
    */
-  std::vector<std::string> FileListInDir(const std::string& dir,
+  std::vector<std::string> ListInDir(const std::string& dir,
                                          const std::string& type,
                                          const std::string& keyword = "") {
     std::vector<std::string> fl;
@@ -271,10 +271,10 @@ class FileOperate {
    *             Default value is S_IRWXU | S_IRWXG | S_IRWXO.
    * @return Returns 0 on success, or -1 on failure.
    */
-  int FileMkdirsByPath(const std::string& p,
+  int MkdirsByPath(const std::string& p,
                        mode_t mode = S_IRWXU | S_IRWXG | S_IRWXO) {
     if (access(p.c_str(), F_OK) != 0) {
-      int ret = FileMkdirsByPath(p.substr(0, p.rfind('/')), mode);
+      int ret = MkdirsByPath(p.substr(0, p.rfind('/')), mode);
       if (0 == ret) {
         ret = mkdir(p.c_str(), mode);
         if (0 != ret) LOG(ERROR) << "mkdir [" << p << "] Failed!";
@@ -293,7 +293,7 @@ class FileOperate {
    * @return The number of characters written to the file.
    */
   template <typename T>
-  int FileWriteTo(const std::string& f, const T& buf,
+  int WriteTo(const std::string& f, const T& buf,
                   std::ios::openmode m = std::ios::out) {
     std::ofstream _of(f);
     if (!_of.is_open()) {
