@@ -2,11 +2,6 @@
 #include "gtest/gtest.h"
 #include "test.h"
 
-void cause_segfault() {
-  int *p = nullptr;
-  *p = 1;
-}
-
 TEST(Backtrace, CatchSegmentFaultSig) {
   EXPECT_DEATH([]{int *p = nullptr; *p = 1;}(), "catch signal " + std::to_string(SIGSEGV));
 }
