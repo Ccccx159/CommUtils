@@ -101,11 +101,17 @@ class GuestAgent {
     std::string line;
     while (std::getline(statusFile, line)) {
       if (line.find("VmRSS") != std::string::npos) {
+#if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 9)
         // 使用正则表达式提取数字
         std::regex e("\\d+");
         std::smatch m;
         std::regex_search(line, m, e);
         line = m.str();
+#else
+        // VmRSS:    15504 kB
+        line = line.substr(0, line.rfind(" "));
+        line = line.substr(line.rfind(" ") + 1);
+#endif
         break;
       }
     }

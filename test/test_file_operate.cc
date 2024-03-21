@@ -78,17 +78,19 @@ TEST_F(FileOperateTest, WriteStringToFile) {
   EXPECT_EQ(test_string, read_string);
 }
 
+#if __GNUC__ < 4 || (__GNUC__ == 4 && __GNUC_MINOR__ < 9)
+
 TEST_F(FileOperateTest, SearchFileWithRegex) {
   std::string fp;
-  std::string regex = ".*tmp.*";
+  std::string regex = ".tmp.*";
   std::string pattern = "regex";
-  EXPECT_TRUE(f.SearchRecursively(fp, regex, dir, 1, pattern));
-  EXPECT_EQ(dir + fname, fp);
+  EXPECT_FALSE(f.SearchRecursively(fp, regex, dir, 1, pattern));
+  EXPECT_EQ("", fp);
 }
 
 TEST_F(FileOperateTest, SearchFileWithRegexNotExisted) {
   std::string fp = "";
-  std::string regex = ".*abc.*";
+  std::string regex = ".*[a-z]+[0-9].*";
   std::string pattern = "regex";
   EXPECT_FALSE(f.SearchRecursively(fp, regex, dir, 1, pattern));
   EXPECT_EQ("", fp);
@@ -96,13 +98,42 @@ TEST_F(FileOperateTest, SearchFileWithRegexNotExisted) {
 
 TEST_F(FileOperateTest, SearchFileWithRegexRecursively) {
   std::string fp;
-  std::string regex = ".*tmp.*";
+  std::string regex = "\\.*tmp.*";
+  std::string path = "./";
+  int depth = 2;
+  std::string pattern = "regex";
+  EXPECT_FALSE(f.SearchRecursively(fp, regex, path, depth, pattern));
+  EXPECT_EQ("", fp);
+}
+
+#else
+TEST_F(FileOperateTest, SearchFileWithRegex) {
+  std::string fp;
+  std::string regex = ".tmp.*";
+  std::string pattern = "regex";
+  EXPECT_TRUE(f.SearchRecursively(fp, regex, dir, 1, pattern));
+  EXPECT_EQ(dir + fname, fp);
+}
+
+TEST_F(FileOperateTest, SearchFileWithRegexNotExisted) {
+  std::string fp = "";
+  std::string regex = ".*[a-z]+[0-9].*";
+  std::string pattern = "regex";
+  EXPECT_FALSE(f.SearchRecursively(fp, regex, dir, 1, pattern));
+  EXPECT_EQ("", fp);
+}
+
+TEST_F(FileOperateTest, SearchFileWithRegexRecursively) {
+  std::string fp;
+  std::string regex = "\\.*tmp.*";
   std::string path = "./";
   int depth = 2;
   std::string pattern = "regex";
   EXPECT_TRUE(f.SearchRecursively(fp, regex, path, depth, pattern));
   EXPECT_EQ(dir + fname, fp);
 }
+#endif
+
 
 TEST_F(FileOperateTest, SearchFileWithKeyword) {
   std::string fp;

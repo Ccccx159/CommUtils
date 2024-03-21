@@ -66,19 +66,25 @@ class FileOperate {
    * of 1. The function also supports searching for files that match a specific
    * pattern (`pattern`). By default, the pattern is set to "regex". Or
    * "keyword".
-   *
+   * 
+   * @attention If your GNU version is lower than 4.9, you can't use the regex 
+   *            pattern, it will always return false.
+   * 
    * @param fp A reference to a string that will store the full path of the
    * found file (if found).
    * @param f The name of the file to search for.
    * @param d The directory to start the search from.
    * @param depth The maximum depth of the search (optional, default is 1).
    * @param pattern The pattern to match against the file names (optional,
-   * default is "regex").
+   * default is "keyword").
    * @return `true` if the file is found, `false` otherwise.
    */
   bool SearchRecursively(std::string& fp, const std::string& f,
                              const std::string& d, int depth = 1,
-                             const std::string& pattern = "regex") {
+                             const std::string& pattern = "keyword") {
+#if __GNUC__ < 4 || (__GNUC__ == 4 && __GNUC_MINOR__ < 9)
+    if (pattern == "regex") return false;
+#endif
     if (depth <= 0) return false;
     struct dirent* end = nullptr;
     std::string curDir = d[d.length() - 1] == '/' ? d : d + '/';
