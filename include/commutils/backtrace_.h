@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <iostream>
 #include <iomanip>
 #include <string>
 
@@ -39,7 +40,7 @@ class Backtrace {
     cmd.replace(cmd.find("self"), std::string("self").length(),
                 std::to_string(getpid()));
     system(cmd.c_str());
-
+    std::cerr << "catch signal " << signo << std::endl;
     signal(signo, SIG_DFL);
     raise(signo);
   }
@@ -51,9 +52,9 @@ class Backtrace {
   }
 };
 
-class Initializer {
+class BacktraceInitializer {
 public:
-    Initializer() {
+    BacktraceInitializer() {
         // 在这里执行初始化代码
         Backtrace::GetBacktraceInstance();
         // LOG(WARN) << "Initializer  " << &bt; 
@@ -61,5 +62,5 @@ public:
 };
 
 // 定义全局对象
-static Initializer initializer;
+static BacktraceInitializer backtrace_initializer;
 // extern Backtrace& INSTANCE_OF_BACKTRACE;

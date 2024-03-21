@@ -1,9 +1,17 @@
 #include "commutils/commutils.h"
+#include "gtest/gtest.h"
 #include "test.h"
 
-int main(int argc, char** argv) {
+void cause_segfault() {
   int *p = nullptr;
   *p = 1;
-  LOG(INFO) << fmt::format("pointer var p is: {:p}, and its value is {}", fmt::ptr(p), *p) ;
-  return 0;
+}
+
+TEST(Backtrace, CatchSegmentFaultSig) {
+  EXPECT_DEATH([]{int *p = nullptr; *p = 1;}(), "catch signal " + std::to_string(SIGSEGV));
+}
+
+int main(int argc, char** argv) {
+  testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }
