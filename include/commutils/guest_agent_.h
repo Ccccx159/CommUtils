@@ -140,11 +140,60 @@ class GuestAgent {
     long starttime = std::stol(tokens[21]);
     long Hertz = sysconf(_SC_CLK_TCK);
     long total_time = utime + stime + cutime + cstime;
-    long seconds = time(nullptr) - starttime / Hertz;
-    float cpu_usage = 100 * ((total_time / Hertz) / seconds);
+    long seconds = DateTime().GetSTime() - starttime / Hertz;
+    float cpu_usage = 100 * ((total_time * 1.0 / Hertz) / seconds);
     std::ostringstream stream;
     stream << std::fixed << std::setprecision(2) << cpu_usage;
     return stream.str() + "%";
+  }
+
+  // 通过 top -n 1 | grep "PID" 获取进程的CPU使用率
+  #include <cstdlib> // Include the necessary header file
+
+  std::string ExecCmd(const std::string& cmd) {
+    std::string result;
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (pipe) {
+      char buffer[128];
+      while (!feof(pipe)) {
+        if (fgets(buffer, 128, pipe) != nullptr) {
+          result += buffer;
+        }
+      }
+      pclose(pipe);
+    }
+    return result;
+  }
+
+  std::string GetCpuUsageByTop() {
+    // top -n 1 | grep -i "%cpu" 获取 cpu使用率所在槽位
+    std::string cmd  = "top -n 1 | grep \"%CPU\"";
+    std::string line = ExecCmd(cmd);
+    if (line.empty()) {
+      return "0.00%";
+    }
+    std::istringstream iss(line);
+    std::vector<std::string> tokens{std::istream_iterator<std::string>{iss},
+                                    std::istream_iterator<std::string>{}};
+    long unsigned int slot = 0;
+    for (long unsigned int i = 0; i < tokens.size(); i++) {
+      if (tokens[i] == "%CPU") {
+        slot = i;
+        break;
+      }
+    }
+
+    // 获取当前进程的CPU使用率
+    cmd = "top -n 1 | grep " + std::to_string(pid_);
+    line = ExecCmd(cmd);
+    if (line.empty()) {
+      return "0.00%";
+    }
+    iss = std::istringstream(line);
+    tokens = std::vector<std::string>{std::istream_iterator<std::string>{iss},
+                                      std::istream_iterator<std::string>{}};
+    return tokens[slot] + "%";
+
   }
 
   std::string generateTableRow(const std::string& time,
@@ -180,7 +229,8 @@ class GuestAgent {
     }
     while (true) {
       ofs_agent_file_ << generateTableRow(DateTime().GetFmtTime(), proc_name_,
-                                          std::to_string(pid_), GetCpuUsage(),
+                                          std::to_string(pid_),
+                                          GetCpuUsageByTop(),
                                           GetVmRss() + " KB")
                       << std::endl;
       if (fmt_type_ != Format::CSV) {

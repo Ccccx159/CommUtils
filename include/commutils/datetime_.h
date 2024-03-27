@@ -124,6 +124,19 @@ class DateTime {
     return ss.str();
   }
 
+
+  /**
+   * Returns the current system time in seconds since the epoch.
+   *
+   * @return The current system time in seconds.
+   */
+  long long GetSTime() {
+    auto now = steady_clock::now();
+    return std::chrono::duration_cast<std::chrono::seconds>(
+               now.time_since_epoch())
+        .count();
+  }
+
   /**
    * Returns the current time in milliseconds since the epoch.
    *
