@@ -1,8 +1,8 @@
 #pragma once
 
 #include <chrono>
-#include <thread>
 #include <mutex>
+#include <thread>
 
 #include "commutils.h"
 
@@ -19,7 +19,8 @@ struct GuestAgentExternalInfo {
 
   GuestAgentExternalInfo(std::string agent_file = "./guest_agent.csv",
                          std::function<void*(void*)> func = nullptr,
-                         void* arg = nullptr, int interval = 10, std::string cpu_method = "top")
+                         void* arg = nullptr, int interval = 10,
+                         std::string cpu_method = "top")
       : agent_file_(agent_file),
         daemon_thread_fun_(func),
         arg_(arg),
@@ -115,8 +116,9 @@ class GuestAgent {
   // CPU 使用率提供两种获取方法：
   // 1. 通过 /proc/<pid>/stat 中的 cpu 执行时间进行计算整个进程的平均 CPU 使用率
   // 2. 通过 `top -n 1` 获取 "%CPU" 字段值
-  // 默认使用 top 方法，可通过初始化 Guest_Agent 实例时对 external_info::cpu_method_
-  // 赋值 "stat" 或 "top" 选择使用哪种方法获取 CPU 使用率。
+  // 默认使用 top 方法，可通过初始化 Guest_Agent 实例时对
+  // external_info::cpu_method_ 赋值 "stat" 或 "top" 选择使用哪种方法获取 CPU
+  // 使用率。
 
   // 获取当前进程Cpu使用率
   std::string GetCpuUsageByStat() {
@@ -146,9 +148,8 @@ class GuestAgent {
     return stream.str() + "%";
   }
 
-
-  // 通过 top -n 1 | grep "PID" 获取进程的CPU使用率
-  #include <cstdlib> // Include the necessary header file
+// 通过 top -n 1 | grep "PID" 获取进程的CPU使用率
+#include <cstdlib>  // Include the necessary header file
 
   std::string ExecCmd(const std::string& cmd) {
     std::string result;
@@ -167,7 +168,7 @@ class GuestAgent {
 
   std::string GetCpuUsageByTop() {
     // top -n 1 | grep -i "%cpu" 获取 cpu使用率所在槽位
-    std::string cmd  = "top -n 1 | grep \"%CPU\"";
+    std::string cmd = "top -n 1 | grep --color=never \"%CPU\"";
     std::string line = ExecCmd(cmd);
     if (line.empty()) {
       return "0.00%";
@@ -175,16 +176,24 @@ class GuestAgent {
     std::istringstream iss(line);
     std::vector<std::string> tokens{std::istream_iterator<std::string>{iss},
                                     std::istream_iterator<std::string>{}};
+    // 移除包含非打印字符的元素
+    tokens.erase(std::remove_if(tokens.begin(), tokens.end(),
+                                [](const std::string& token) {
+                                  return std::any_of(
+                                      token.begin(), token.end(),
+                                      [](char c) { return ::iscntrl(c); });
+                                }),
+                 tokens.end());
     long unsigned int slot = 0;
     for (long unsigned int i = 0; i < tokens.size(); i++) {
       if (tokens[i] == "%CPU") {
-        slot = i - 1;
+        slot = i;
         break;
       }
     }
 
     // 获取当前进程的CPU使用率
-    cmd = "top -n 1 | grep " + std::to_string(pid_);
+    cmd = "top -n 1 | grep --color=never " + std::to_string(pid_);
     line = ExecCmd(cmd);
     if (line.empty()) {
       return "0.00%";
@@ -192,10 +201,16 @@ class GuestAgent {
     iss = std::istringstream(line);
     tokens = std::vector<std::string>{std::istream_iterator<std::string>{iss},
                                       std::istream_iterator<std::string>{}};
+    // 移除包含非打印字符的元素
+    tokens.erase(std::remove_if(tokens.begin(), tokens.end(),
+                                [](const std::string& token) {
+                                  return std::any_of(
+                                      token.begin(), token.end(),
+                                      [](char c) { return ::iscntrl(c); });
+                                }),
+                 tokens.end());
     return tokens[slot] + "%";
-
   }
-
 
   std::string generateTableRow(const std::string& time,
                                const std::string& procName,
@@ -249,7 +264,8 @@ class GuestAgent {
                         << std::endl;
       }
       uni_lock.unlock();
-      std::this_thread::sleep_for(std::chrono::seconds(external_info_.interval_));
+      std::this_thread::sleep_for(
+          std::chrono::seconds(external_info_.interval_));
     }
   }
 
@@ -273,7 +289,8 @@ class GuestAgent {
     std::unique_lock<std::mutex> uni_lock(file_lock_);
     std::ifstream ifs_agent_file(external_info_.agent_file_);
     if (!ifs_agent_file.is_open()) {
-      LOG(ERROR) << "open agent file " << external_info_.agent_file_ << " failed!";
+      LOG(ERROR) << "open agent file " << external_info_.agent_file_
+                 << " failed!";
       return "";
     }
     std::string ctx, line;
