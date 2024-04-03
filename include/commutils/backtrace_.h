@@ -1,11 +1,12 @@
 #pragma once
+#include <dlfcn.h>
 #include <execinfo.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
 
-#include <iostream>
 #include <iomanip>
+#include <iostream>
 #include <string>
 
 #include "commutils.h"
@@ -29,8 +30,32 @@ class Backtrace {
         exit(EXIT_FAILURE);
       }
       for (int i = 0; i < nptr; i++) {
+        std::string extra_info;
+        if (i == 3) {
+          // 使用正则匹配找到最后 [] 内的地址
+          std::string addr = strings[i];
+          addr = addr.substr(addr.rfind('[') + 1,
+                             addr.rfind(']') - addr.find('[') - 1);
+          // 将 addr 字符串转换为地址
+          void* p = (void*)std::stoul(addr, nullptr, 16);
+          // 使用dladdr函数获取地址对应的符号信息
+          Dl_info info;
+          if (dladdr(p, &info)) {
+            try {
+              extra_info = fmt::format(
+                  "segfault_addr:{:p}, symbol_file: {}, file_base: {:p}, "
+                  "symbol_name: {}, symbol_addr: {:p}",
+                  fmt::ptr(p), info.dli_fname, fmt::ptr(info.dli_fbase),
+                  info.dli_sname, info.dli_saddr);
+            } catch (const std::exception& e) {
+              extra_info = fmt::format(
+                  "segfault_addr:{:p}, symbol_file: {}, file_base: {:p}",
+                  fmt::ptr(p), info.dli_fname, fmt::ptr(info.dli_fbase));
+            }
+          }
+        }
         LOG(FATAL) << '[' << std::setw(2) << std::setfill('0') << i << "] "
-                   << strings[i];
+                   << strings[i]  << " " << extra_info;
       }
       free(strings);
     }();
@@ -53,12 +78,12 @@ class Backtrace {
 };
 
 class BacktraceInitializer {
-public:
-    BacktraceInitializer() {
-        // 在这里执行初始化代码
-        Backtrace::GetBacktraceInstance();
-        // LOG(WARN) << "Initializer  " << &bt; 
-    }
+ public:
+  BacktraceInitializer() {
+    // 在这里执行初始化代码
+    Backtrace::GetBacktraceInstance();
+    // LOG(WARN) << "Initializer  " << &bt;
+  }
 };
 
 // 定义全局对象
