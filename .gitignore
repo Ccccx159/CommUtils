@@ -1,6 +1,6 @@
 **/.vscode/
 **/.cache/
-**/.tmp/
+**/.depend/
 **/*.o
 **/build/
 **/artifacts/

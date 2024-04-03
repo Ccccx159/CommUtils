@@ -1,3 +1,7 @@
+#!/bin/python3
+
+# This script is used to modify the compile_commands.json file to help the clang-tidy tool to recognize the GNU compiler version.
+
 import json, os
 import subprocess
 import re

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.2)
+cmake_minimum_required(VERSION 3.15)
 
 # 添加加密库
 set(LICENSE_LIB_PATH "${COMMUTILS_EXTERN_DIR}/lib/license/${platform}/${sdk}")

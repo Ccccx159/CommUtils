@@ -3,19 +3,19 @@
 # download external depend
 # -----------------------------------------------------------------------------
 if (NOT sdk)
-  execute_process(COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/build.sh -p ${platform} RESULT_VARIABLE result)
+  execute_process(COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_pre.py -p ${platform} RESULT_VARIABLE result)
 else()
-  execute_process(COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/build.sh -p ${platform} -k ${sdk} RESULT_VARIABLE result)
+  execute_process(COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_pre.py -p ${platform} -s ${sdk} RESULT_VARIABLE result)
 endif()
 if (NOT ${result} EQUAL 0)
-  message("Error: bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/build.sh -p ${platform} -k ${sdk} Failed!")
+  message("Error: python3 ${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_pre.py -p ${platform} -s ${sdk} Failed!")
   message(FATAL_ERROR "Stopping configuration!")
 endif()
 
 # -----------------------------------------------------------------------------
 # cmake minimum
 # -----------------------------------------------------------------------------
-cmake_minimum_required(VERSION 3.2)
+cmake_minimum_required(VERSION 3.15)
 
 # -----------------------------------------------------------------------------
 # Start project
@@ -63,8 +63,8 @@ endif()
 # -----------------------------------------------------------------------------
 include(GNUInstallDirs)
 include(custom_utils)
-include(load_external_header)
-include(load_external_libs)
+# include(load_external_header)
+# include(load_external_libs)
 
 # -----------------------------------------------------------------------------
 # Set COMMUTILS_MASTER_PROJECT to ON if we are building spdlog
@@ -129,7 +129,8 @@ endif()
 # -----------------------------------------------------------------------------
 # add custom target
 # -----------------------------------------------------------------------------
-# use python script to modify compile_commands.json file
+# This script is used to modify the compile_commands.json file to help the 
+# clang-tidy tool to recognize the GNU compiler version.
 if (COMMUTILS_CUSTOM_TARGET)
   add_custom_target(commutils_py_script ALL
     COMMAND ${CMAKE_COMMAND} -E echo "Running commutils Python script..."
