@@ -1,75 +1,151 @@
-cmake_minimum_required(VERSION 3.15)
 
-option(WITH_SHARED_LIB "" OFF)
-option(WITH_UNIT_TESTS "create unit tests from unittest dir" OFF)
-option(WITH_ASAN_CHECK "using sanitize to check problems with memleak, etc" OFF)
-option(WITH_VDEC "using Alg Integration Department's internal vdec lib to support decoding by hard resources" OFF)
-option(WITH_ALG_BASE "using alg_base_func lib to support decoding by soft way" ON)
+# -----------------------------------------------------------------------------
+# download external depend
+# -----------------------------------------------------------------------------
+if (NOT sdk)
+  execute_process(COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/build.sh -p ${platform} RESULT_VARIABLE result)
+else()
+  execute_process(COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/build.sh -p ${platform} -k ${sdk} RESULT_VARIABLE result)
+endif()
+if (NOT ${result} EQUAL 0)
+  message("Error: bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/build.sh -p ${platform} -k ${sdk} Failed!")
+  message(FATAL_ERROR "Stopping configuration!")
+endif()
 
-if (NOT PLATFORM)
-  message(FATAL_ERROR "PLATFORM must be set! check your parameters!")
-endif(NOT PLATFORM)
+# -----------------------------------------------------------------------------
+# cmake minimum
+# -----------------------------------------------------------------------------
+cmake_minimum_required(VERSION 3.2)
 
-if (NOT SDK)
-  message(WARNING "now constructing for ${PLATFORM} without SDK!")
-endif(NOT SDK)
+# -----------------------------------------------------------------------------
+# Start project
+# -----------------------------------------------------------------------------
+set(COMMUTILS_EXTERN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.depend" CACHE STRING "external depend download dir")
 
-set(TARGET_NAME "CommUtils" CACHE STRING "target name" FORCE)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${COMMUTILS_EXTERN_DIR}/cmake_module)
 
+include(utils)
 
-# 设置外部依赖根路径
-set(EXTERNAL_DEPEND_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.tmp" CACHE STRING "external depend root")
-# 导入cmake module path
-set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH};${EXTERNAL_DEPEND_DIR}/cmake_module;${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-# 导入cmake module 交叉编译模块必须在project前导入，保证交叉编译器的校验正确
-include(toolchain_options)
+set(COMMUTILS_TARGET_NAME "commutils")
+project(${COMMUTILS_TARGET_NAME})
 
-project(${TARGET_NAME})
-
-set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
-
-# 设置默认编译模式 Debug
+# -----------------------------------------------------------------------------
+# Set default build to release
+# -----------------------------------------------------------------------------
 if (NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Choose Release or Debug" FORCE)
+  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose Release or Debug" FORCE)
 endif()
 
-# 打开 asan 时，强制以 Debug 模式编译
-if (WITH_ASAN_CHECK)
-  set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "must build in Debug way with sanitize" FORCE)
-  add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+  add_compile_options(-g -O0 -fno-omit-frame-pointer)
 endif()
 
-if (CMAKE_BUILD_TYPE STREQUAL "Debug") 
-  add_compile_options(-O0)
+# -----------------------------------------------------------------------------
+# special platform configuration
+# -----------------------------------------------------------------------------
+# 特殊平台配置
+if("teslaT4" STREQUAL ${platform})
+  set(USE_CUDA "ON")
+  set(HAVE_OPENCV "ON")
+  include(cuda)
 endif()
-add_compile_options(-Wall -Werror)
 
-# 设置默认安装目录必须在project之后，否则不生效
-if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-  set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/artifacts/${CMAKE_BUILD_TYPE}/${TARGET_NAME}" CACHE PATH "default install prefix" FORCE)
+# -----------------------------------------------------------------------------
+# Compiler config
+# -----------------------------------------------------------------------------
+if (NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 11)
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
 endif()
 
-include(load_external_header)
-# include(load_external_libs)
+# -----------------------------------------------------------------------------
+# include module
+# -----------------------------------------------------------------------------
+include(GNUInstallDirs)
 include(custom_utils)
+include(load_external_header)
+include(load_external_libs)
+
+# -----------------------------------------------------------------------------
+# Set COMMUTILS_MASTER_PROJECT to ON if we are building spdlog
+# -----------------------------------------------------------------------------
+# Check if commutils is being used directly or via add_subdirectory, but allow overriding
+if (NOT DEFINED COMMUTILS_MASTER_PROJECT)
+  if (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+    set(COMMUTILS_MASTER_PROJECT ON)
+  else()
+    set(COMMUTILS_MASTER_PROJECT OFF)
+  endif()
+endif()
+
+if (COMMUTILS_MASTER_PROJECT)
+  # 设置默认安装目录必须在project之后，否则不生效
+  if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/artifacts/${CMAKE_BUILD_TYPE}/${COMMUTILS_TARGET_NAME}" CACHE PATH "default install prefix" FORCE)
+  endif()
+
+  # 强制导出 compile_command.json, 用于 clangd code intelligent completion
+  set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+  if(CMAKE_EXPORT_COMPILE_COMMANDS)
+    # 使用交叉编译器时 c++ 标准头文件无法追踪，使用以下语句导出交叉编译器对应的标准头文件
+    set(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
+  endif()
+endif()
+
+# unit test option
+option(COMMUTILS_BUILD_TEST_HO "Build unit tests with gtest" OFF)
+
+# if not master project, do not install
+option(COMMUTILS_INSTALL "Install commutils" ${COMMUTILS_MASTER_PROJECT})
+
+# build with spdlog option
+option(COMMUTILS_WITH_SPDLOG "Build with spdlog" ON)
+
+# sanitizer option
+option(COMMUTILS_SANITIZE_ADDRESS "Eable address sanitizer in tests" OFF)
+
+# custon target option
+option(COMMUTILS_CUSTOM_TARGET "Custom target" OFF)
+
+# -----------------------------------------------------------------------------
+# load 3rdparty
+# -----------------------------------------------------------------------------
 include(load_3rdparty)
 
-
-# 强制导出 compile_command.json, 用于 clangd code intelligent completion
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-if(CMAKE_EXPORT_COMPILE_COMMANDS)
-  # 使用交叉编译器时 c++ 标准头文件无法追踪，使用以下语句导出交叉编译器对应的标准头文件
-  set(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
-endif()
-
-# 构建目标文件
+# -----------------------------------------------------------------------------
+# add src subdirectory
+# -----------------------------------------------------------------------------
 add_subdirectory(src)
 
-# 是否生成单元测试
-if (WITH_UNIT_TESTS)
+# -----------------------------------------------------------------------------
+# add unit test
+# -----------------------------------------------------------------------------
+if (COMMUTILS_BUILD_TEST_HO)
   enable_testing()
   add_subdirectory(test)
 endif()
+
+
+# -----------------------------------------------------------------------------
+# add custom target
+# -----------------------------------------------------------------------------
+# use python script to modify compile_commands.json file
+if (COMMUTILS_CUSTOM_TARGET)
+  add_custom_target(commutils_py_script ALL
+    COMMAND ${CMAKE_COMMAND} -E echo "Running commutils Python script..."
+    COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/build_post.py
+    COMMENT "Running commutils Python script..."
+  )
+endif()
+
+# -----------------------------------------------------------------------------
+# install
+# -----------------------------------------------------------------------------
+if (COMMUTILS_INSTALL)
+  include(installer)
+endif()
+
+
+
+
+

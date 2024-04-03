@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <thread>
+#include <mutex>
 
 #include "commutils.h"
 
@@ -14,14 +15,16 @@ struct GuestAgentExternalInfo {
   std::function<void*(void*)> daemon_thread_fun_;
   void* arg_;
   int interval_;
+  std::string cpu_method_;
 
   GuestAgentExternalInfo(std::string agent_file = "./guest_agent.csv",
                          std::function<void*(void*)> func = nullptr,
-                         void* arg = nullptr, int interval = 10)
+                         void* arg = nullptr, int interval = 10, std::string cpu_method = "top")
       : agent_file_(agent_file),
         daemon_thread_fun_(func),
         arg_(arg),
-        interval_(interval) {}
+        interval_(interval),
+        cpu_method_(cpu_method) {}
 };
 
 class GuestAgent {
@@ -71,16 +74,6 @@ class GuestAgent {
     LOG(INFO) << "GuestAgent Destructor";
   }
 
-  // // 2024-03-20 13:48:51
-  // std::string GetCurFmtTime() {
-  //   auto now = std::chrono::system_clock::now();
-  //   auto now_c = std::chrono::system_clock::to_time_t(now);
-  //   std::tm* now_tm = std::localtime(&now_c);
-  //   std::stringstream ss;
-  //   ss << std::put_time(now_tm, "%Y-%m-%d %H:%M:%S");
-  //   return ss.str();
-  // }
-
   std::string GetProcName() {
     std::ifstream commFile("/proc/self/comm");
     if (!commFile.is_open()) {
@@ -119,8 +112,14 @@ class GuestAgent {
     return line;
   }
 
+  // CPU 使用率提供两种获取方法：
+  // 1. 通过 /proc/<pid>/stat 中的 cpu 执行时间进行计算整个进程的平均 CPU 使用率
+  // 2. 通过 `top -n 1` 获取 "%CPU" 字段值
+  // 默认使用 top 方法，可通过初始化 Guest_Agent 实例时对 external_info::cpu_method_
+  // 赋值 "stat" 或 "top" 选择使用哪种方法获取 CPU 使用率。
+
   // 获取当前进程Cpu使用率
-  std::string GetCpuUsage() {
+  std::string GetCpuUsageByStat() {
     std::ifstream statFile("/proc/self/stat");
     if (!statFile.is_open()) {
       LOG(ERROR) << "Failed to open /proc/self/stat";
@@ -146,6 +145,7 @@ class GuestAgent {
     stream << std::fixed << std::setprecision(2) << cpu_usage;
     return stream.str() + "%";
   }
+
 
   // 通过 top -n 1 | grep "PID" 获取进程的CPU使用率
   #include <cstdlib> // Include the necessary header file
@@ -178,7 +178,7 @@ class GuestAgent {
     long unsigned int slot = 0;
     for (long unsigned int i = 0; i < tokens.size(); i++) {
       if (tokens[i] == "%CPU") {
-        slot = i;
+        slot = i - 1;
         break;
       }
     }
@@ -195,6 +195,7 @@ class GuestAgent {
     return tokens[slot] + "%";
 
   }
+
 
   std::string generateTableRow(const std::string& time,
                                const std::string& procName,
@@ -228,15 +229,26 @@ class GuestAgent {
                       << std::endl;
     }
     while (true) {
-      ofs_agent_file_ << generateTableRow(DateTime().GetFmtTime(), proc_name_,
-                                          std::to_string(pid_),
-                                          GetCpuUsageByTop(),
-                                          GetVmRss() + " KB")
-                      << std::endl;
+      std::unique_lock<std::mutex> uni_lock(file_lock_);
+      if (external_info_.cpu_method_ == "stat") {
+        ofs_agent_file_ << generateTableRow(DateTime().GetFmtTime(), proc_name_,
+                                            std::to_string(pid_),
+                                            GetCpuUsageByStat(),
+                                            GetVmRss() + " KB")
+                        << std::endl;
+      } else {
+        ofs_agent_file_ << generateTableRow(DateTime().GetFmtTime(), proc_name_,
+                                            std::to_string(pid_),
+                                            GetCpuUsageByTop(),
+                                            GetVmRss() + " KB")
+                        << std::endl;
+      }
+
       if (fmt_type_ != Format::CSV) {
         ofs_agent_file_ << "+" << std::string(header.size() - 2, '-') << "+"
                         << std::endl;
       }
+      uni_lock.unlock();
       std::this_thread::sleep_for(std::chrono::seconds(external_info_.interval_));
     }
   }
@@ -248,11 +260,27 @@ class GuestAgent {
   std::ofstream ofs_agent_file_;
   Format fmt_type_;
   struct GuestAgentExternalInfo external_info_;
+  std::mutex file_lock_;
 
  public:
   static GuestAgent& GetGuestAgentInstance(
       struct GuestAgentExternalInfo const& ex_info = {}) {
     static GuestAgent ins(ex_info);
     return ins;
+  }
+
+  std::string ReadAgentFile() {
+    std::unique_lock<std::mutex> uni_lock(file_lock_);
+    std::ifstream ifs_agent_file(external_info_.agent_file_);
+    if (!ifs_agent_file.is_open()) {
+      LOG(ERROR) << "open agent file " << external_info_.agent_file_ << " failed!";
+      return "";
+    }
+    std::string ctx, line;
+    while (std::getline(ifs_agent_file, line)) {
+      ctx += line;
+      ctx += "\n";
+    }
+    return ctx;
   }
 };

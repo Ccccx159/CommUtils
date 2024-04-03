@@ -63,4 +63,3 @@ public:
 
 // 定义全局对象
 static BacktraceInitializer backtrace_initializer;
-// extern Backtrace& INSTANCE_OF_BACKTRACE;

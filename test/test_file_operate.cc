@@ -177,7 +177,9 @@ TEST_F(FileOperateTest, GetFileSuffix) {
 TEST_F(FileOperateTest, ListFilesInDir) {
   std::vector<std::string> fl = f.ListInDir(dir, "file", "");
   EXPECT_EQ(1, fl.size());
-  EXPECT_EQ(dir + fname, fl[0]);
+  if (fl.size() > 0) {
+    EXPECT_EQ(dir + fname, fl[0]);
+  }
 }
 
 int main(int argc, char **argv) {

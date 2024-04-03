@@ -1,18 +1,4 @@
 cmake_minimum_required(VERSION 3.15)
-include(GNUInstallDirs)
-
-# include(CMakePackageConfigHelpers)
-# write_basic_package_version_file(
-#   ${PROJECT_BINARY_DIR}/cmake/${TARGET_NAME}ConfigVersion.cmake
-#   VERSION 0.0.1
-#   COMPATIBILITY SameMajorVersion
-# )
-
-# configure_package_config_file(
-#   ${PROJECT_SOURCE_DIR}/cmake/${TARGET_NAME}Config.cmake.in
-#   ${PROJECT_BINARY_DIR}/cmake/${TARGET_NAME}Config.cmake
-#   INSTALL_DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/cmake
-# )
 
 # 安装头文件
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/ 
@@ -30,16 +16,12 @@ install(TARGETS ${TARGET_NAME} EXPORT ${TARGET_NAME}Targets
   INCLUDES DESTINATION include
 )
 
-# install(EXPORT ${TARGET_NAME}Targets
-#   FILE ${TARGET_NAME}Targets.cmake
-#   NAMESPACE ${TARGET_NAME}::
-#   DESTINATION lib/cmake/${TARGET_NAME}
-#   )
+install(DIRECTORY 3rdparty/fmt/include/ DESTINATION include)
 
-# install(
-#   FILES
-#     ${PROJECT_BINARY_DIR}/cmake/${TARGET_NAME}ConfigVersion.cmake
-#     ${PROJECT_BINARY_DIR}/cmake/${TARGET_NAME}Config.cmake
-#   DESTINATION
-#     ${CMAKE_INSTALL_PREFIX}/lib/cmake
-# )
+install(FILES 3rdparty/concurrentqueue/concurrentqueue.h DESTINATION include)
+
+install(FILES 3rdparty/nlohmann_json/single_include/nlohmann/json.hpp DESTINATION include/nlohmann)
+
+if (COMMUTILS_WITH_SPDLOG)
+  install(DIRECTORY 3rdparty/spdlog/include/ DESTINATION include)
+endif()

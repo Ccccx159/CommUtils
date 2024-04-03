@@ -1,4 +1,4 @@
-import json
+import json, os
 import subprocess
 import re
 def get_compiler_version(compiler):
@@ -21,8 +21,8 @@ def insert_version_in_command(command, major, minor, patchlevel):
         return new_command
     return command
 
-def main():
-    with open('./build/compile_commands.json', 'r') as f:
+def main(compile_commands):
+    with open(compile_commands, 'r') as f:
         data = json.load(f)
         for item in data:
             command = item['command']
@@ -31,8 +31,9 @@ def main():
             new_command = insert_version_in_command(command, major, minor, patchlevel)
             item['command'] = new_command
 
-    with open('compile_commands.json', 'w') as f:
+    with open(compile_commands, 'w') as f:
         json.dump(data, f, indent=2)
 
 if __name__ == "__main__":
-    main()
+    command_file = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + '/..') + '/build/compile_commands.json'
+    main(command_file)
