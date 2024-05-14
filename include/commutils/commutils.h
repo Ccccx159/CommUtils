@@ -8,3 +8,4 @@
 #include "commutils/file_.h"
 #include "commutils/guest_agent_.h"
 #include "commutils/tracer_.h"
+#include "commutils/sys_utils_.h"
