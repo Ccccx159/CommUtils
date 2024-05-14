@@ -33,11 +33,13 @@ class Tracer {
   using ccque = moodycamel::ConcurrentQueue<Tracer::Event>;
 
  public:
-  void begin(const std::string& tag, const std::string& cat = "generic", const std::string&phase = "B") {
+  void begin(const std::string& tag, const std::string& cat = "generic",
+             const std::string& phase = "B") {
     event_stamp(tag, cat, phase);
   }
 
-  void end(const std::string& tag, const std::string& cat = "generic", const std::string&phase = "E") {
+  void end(const std::string& tag, const std::string& cat = "generic",
+           const std::string& phase = "E") {
     event_stamp(tag, cat, phase);
   }
 
@@ -56,23 +58,22 @@ class Tracer {
   Tracer() : stop_(true) {
     trace_file_path_ = "./Tracer_Report_" + std::to_string(getpid()) + ".json";
     struct timespec wt, ct;
-		clock_gettime( CLOCK_MONOTONIC,         &wt );
-		clock_gettime( CLOCK_THREAD_CPUTIME_ID, &ct );
-		begin_wall_offset_ = wt.tv_sec * 1000000000L + wt.tv_nsec;
-		struct timespec res;
-		clock_getres( CLOCK_THREAD_CPUTIME_ID, &res );
-		fprintf( stderr, "ThreadTracer: clock resolution: %ld nsec.\n", res.tv_nsec );
-		begin_wall_cutoff_ = begin_wall_offset_;
+    clock_gettime(CLOCK_MONOTONIC, &wt);
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ct);
+    begin_wall_offset_ = wt.tv_sec * 1000000000L + wt.tv_nsec;
+    struct timespec res;
+    clock_getres(CLOCK_THREAD_CPUTIME_ID, &res);
+    fprintf(stderr, "ThreadTracer: clock resolution: %ld nsec.\n", res.tv_nsec);
+    begin_wall_cutoff_ = begin_wall_offset_;
     stop_ = false;
 
-    // TODO: 
+    // TODO:
     report_thread_ = std::thread(&Tracer::report, this);
-    
   }
 
   virtual ~Tracer() {
     // TODO
-    if(!stop_) {
+    if (!stop_) {
       stop_ = true;
     }
     report_thread_.join();
@@ -91,7 +92,7 @@ class Tracer {
       return;
     }
     of_trace_file_ << "{\"traceEvents\":[\n";
-    while(!stop_) {
+    while (!stop_) {
       struct Event e;
       bool res = event_queue_.try_dequeue(e);
       if (!res) {
@@ -106,7 +107,7 @@ class Tracer {
       }
       of_trace_file_ << je;
       event_cnt_++;
-      
+
       DateTime().SleepMs(5);
     }
     // 写入事件尾信息
