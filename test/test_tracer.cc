@@ -5,12 +5,13 @@ int CpuUsageSimulate(const std::string & tag) {
   int run_cnt = 100;
   auto & tracer = Tracer::instance();
   while (run_cnt > 0) {
-    tracer.begin(tag + std::to_string(getpid()));
+    json arg = json{{"cnt", run_cnt}};
+    tracer.begin(tag + std::to_string(SysUtils().get_tid()), arg);
     auto start = DateTime().GetMsTime();
     while (DateTime().GetMsTime() - start <= run_time) {};
     DateTime().SleepMs(total_time - run_time);
+    tracer.end(tag + std::to_string(SysUtils().get_tid()), arg);
     run_cnt--;
-    tracer.end(tag + std::to_string(getpid()));
   }
   return 0;
 }

@@ -20,6 +20,8 @@ class Tracer {
     uint64_t pid;
     uint64_t tid;
     json args;
+    int64_t involuntarily_preempted;
+    int64_t voluntarily_preempted;
 
     Event() {
       ts = 0;
@@ -33,14 +35,15 @@ class Tracer {
   using ccque = moodycamel::ConcurrentQueue<Tracer::Event>;
 
  public:
-  void begin(const std::string& tag, const std::string& cat = "generic",
+  void begin(const std::string& tag, const json& custom_args = json::object(),
+             const std::string& cat = "generic",
              const std::string& phase = "B") {
-    event_stamp(tag, cat, phase);
+    event_stamp(tag, custom_args, cat, phase);
   }
 
-  void end(const std::string& tag, const std::string& cat = "generic",
-           const std::string& phase = "E") {
-    event_stamp(tag, cat, phase);
+  void end(const std::string& tag, const json& custom_args = json::object(),
+           const std::string& cat = "generic", const std::string& phase = "E") {
+    event_stamp(tag, custom_args, cat, phase);
   }
 
   void stop() {
@@ -99,6 +102,27 @@ class Tracer {
         DateTime().SleepMs(5);
         continue;
       }
+      if ("E" == e.ph) {
+        std::string key = std::to_string(e.tid) + e.name;
+        if (event_map_.find(key) != event_map_.end()) {
+          struct Event& be = event_map_[key];
+          int64_t preempted = e.involuntarily_preempted - be.involuntarily_preempted;
+          int64_t voluntary = e.voluntarily_preempted - be.voluntarily_preempted;
+          int64_t walldur = e.ts - be.ts;
+          int64_t cpudur = e.tts - be.tts;
+          int64_t dutycycle = 100 * cpudur / walldur;
+          e.args["preempted"] = preempted;
+          e.args["voluntary"] = voluntary;
+          e.args["dutycycle"] = dutycycle;
+        } else {
+          LOG(WARNING) << "tid: " << e.tid << " name: " << e.name
+                       << " not found begin event!";
+          continue;
+        }
+      } else {
+        std::string key = std::to_string(e.tid) + e.name;
+        event_map_[key] = e;
+      }
       json je = json{{"name", e.name}, {"cat", e.cat},  {"ph", e.ph},
                      {"ts", e.ts},     {"tts", e.tts},  {"pid", e.pid},
                      {"tid", e.tid},   {"args", e.args}};
@@ -116,8 +140,8 @@ class Tracer {
     return;
   }
 
-  int event_stamp(const std::string& tag, const std::string& cat,
-                  const std::string& phase) {
+  int event_stamp(const std::string& tag, const json& custom_args,
+                  const std::string& cat, const std::string& phase) {
     if (stop_) {
       return 0;
     }
@@ -148,13 +172,16 @@ class Tracer {
     e.tts = cpu_nsec;
     e.pid = static_cast<uint64_t>(getpid());
     e.tid = static_cast<uint64_t>(tid);
-
+    e.involuntarily_preempted = ru.ru_nivcsw;
+    e.voluntarily_preempted = ru.ru_nvcsw;
+    e.args = custom_args;
     event_queue_.enqueue(e);
     return 0;
   }
 
  private:
   ccque event_queue_;
+  std::unordered_map<std::string, struct Event> event_map_;
   std::thread report_thread_;
   std::atomic<bool> stop_;
   std::string trace_file_path_;
