@@ -3,6 +3,7 @@
 **/.depend/
 **/*.o
 **/build/
+**/build-*/
 **/artifacts/
 /tools/*
 !/tools/*.tar.*

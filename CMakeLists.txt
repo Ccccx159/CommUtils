@@ -24,10 +24,8 @@ set(COMMUTILS_EXTERN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.depend" CACHE STRING "ext
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${COMMUTILS_EXTERN_DIR}/cmake_module)
 
-include(utils)
-
 set(COMMUTILS_TARGET_NAME "commutils")
-project(${COMMUTILS_TARGET_NAME})
+project(${COMMUTILS_TARGET_NAME} LANGUAGES C CXX)
 
 # -----------------------------------------------------------------------------
 # Set default build to release
@@ -103,6 +101,7 @@ option(COMMUTILS_WITH_SPDLOG "Build with spdlog" ON)
 
 # sanitizer option
 option(COMMUTILS_SANITIZE_ADDRESS "Eable address sanitizer in tests" OFF)
+option(COMMUTILS_SANITIZE_LEAK "Enable leak detection when address sanitizer is enabled" OFF)
 
 # custon target option
 option(COMMUTILS_CUSTOM_TARGET "Custom target" OFF)
@@ -116,6 +115,10 @@ include(load_3rdparty)
 # add src subdirectory
 # -----------------------------------------------------------------------------
 add_subdirectory(src)
+
+if (COMMUTILS_SANITIZE_ADDRESS)
+  target_enable_sanitizer(${COMMUTILS_TARGET_NAME})
+endif()
 
 # -----------------------------------------------------------------------------
 # add unit test

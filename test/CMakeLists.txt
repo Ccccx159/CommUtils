@@ -12,7 +12,7 @@ message(STATUS ${unittest_sources_list})
 foreach(source_file ${unittest_sources_list})
   
   # recognize *.c *.cc *.cpp *.cxx, get test name
-  STRING(REGEX REPLACE ".+/(.*)\\.c.+" "\\1" unittest_name ${source_file})
+  get_filename_component(unittest_name ${source_file} NAME_WE)
 
   # add target
   add_executable(${unittest_name} ${source_file})
@@ -22,13 +22,25 @@ foreach(source_file ${unittest_sources_list})
 
   # add ctest
   add_test(NAME ${unittest_name} COMMAND ${unittest_name})
+  if (COMMUTILS_SANITIZE_ADDRESS)
+    if (COMMUTILS_SANITIZE_LEAK)
+      set(commutils_asan_detect_leaks 1)
+    else()
+      set(commutils_asan_detect_leaks 0)
+    endif()
+    set_tests_properties(${unittest_name} PROPERTIES
+      ENVIRONMENT "ASAN_OPTIONS=detect_leaks=${commutils_asan_detect_leaks}:halt_on_error=1:abort_on_error=1;LSAN_OPTIONS=exitcode=23;UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1"
+    )
+  endif()
   set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/unittest)
 
   # link library
   target_link_libraries(${unittest_name} 
     PRIVATE
       ${COMMUTILS_TARGET_NAME}
-      gtest dl pthread
+      gtest
+      dl
+      pthread
   )
   
   # use sanitize
