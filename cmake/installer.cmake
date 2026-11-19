@@ -42,12 +42,14 @@ install(TARGETS fmt-header-only
         RUNTIME DESTINATION bin
         INCLUDES DESTINATION include)
 
-install(TARGETS spdlog_header_only
-        EXPORT ${COMMUTILS_TARGET_NAME}Targets
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib
-        RUNTIME DESTINATION bin
-        INCLUDES DESTINATION include)
+if (COMMUTILS_WITH_SPDLOG)
+  install(TARGETS spdlog_header_only
+          EXPORT ${COMMUTILS_TARGET_NAME}Targets
+          LIBRARY DESTINATION lib
+          ARCHIVE DESTINATION lib
+          RUNTIME DESTINATION bin
+          INCLUDES DESTINATION include)
+endif()
 
 install(TARGETS concurrentqueue
         EXPORT ${COMMUTILS_TARGET_NAME}Targets

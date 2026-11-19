@@ -9,7 +9,15 @@
 #include <regex>
 #include <string>
 
-#include "commutils.h"
+#include <algorithm>
+#include <cerrno>
+#include <limits>
+#include <sstream>
+#include <utility>
+#include <vector>
+#include <unistd.h>
+
+#include "commutils/logger_.h"
 #include "nlohmann/json.hpp"
 using json = nlohmann::json;
 
@@ -85,7 +93,7 @@ class FileOperate {
 #if __GNUC__ < 4 || (__GNUC__ == 4 && __GNUC_MINOR__ < 9)
     if (pattern == "regex") return false;
 #endif
-    if (depth <= 0) return false;
+    if (depth <= 0 || d.empty()) return false;
     struct dirent* end = nullptr;
     std::string curDir = d[d.length() - 1] == '/' ? d : d + '/';
     std::string tmpFile;
@@ -98,7 +106,9 @@ class FileOperate {
       if (std::string(end->d_name) == "." || std::string(end->d_name) == "..") {
         continue;
       }
-      if (end->d_type == DT_DIR) {
+      struct stat entry;
+      if (lstat((curDir + end->d_name).c_str(), &entry) != 0) continue;
+      if (S_ISDIR(entry.st_mode)) {
         std::string nextDir = curDir + end->d_name;
         if (true == SearchRecursively(fp, f, nextDir, depth - 1, pattern)) {
           closedir(fDir);
@@ -170,13 +180,16 @@ class FileOperate {
       return -1;
     }
 
-    _if.seekg(0, std::ios::end);
-    buf.resize(_if.tellg());
-    _if.seekg(0, std::ios::beg);
-    _if.read(&buf[0], buf.size());
-
-    _if.close();
-    return buf.length();
+    std::ostringstream contents;
+    char chunk[8192];
+    while (_if.read(chunk, sizeof(chunk)) || _if.gcount() > 0)
+      contents.write(chunk, _if.gcount());
+    if (!_if.eof()) return -1;
+    std::string data = contents.str();
+    if (data.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
+      return -1;
+    buf = std::move(data);
+    return static_cast<int>(buf.size());
   }
 
   /**
@@ -190,7 +203,7 @@ class FileOperate {
     std::string head;
     size_t pos = f.rfind('/') == f.npos ? 0 : f.rfind('/') + 1;
     name = f.substr(pos, f.length() - pos);
-    if ('.' == name[0]) {
+    if (!name.empty() && '.' == name[0]) {
       name = name.substr(1, name.length() - 1);
       head = ".";
     }
@@ -214,7 +227,7 @@ class FileOperate {
     size_t pos = f.rfind('/') == f.npos ? 0 : f.rfind('/') + 1;
     suffix = f.substr(pos, f.length() - pos);
     // 当文件名以 '.' 开头时，排除该 '.'
-    if ('.' == suffix[0]) suffix = suffix.substr(1, suffix.length() - 1);
+    if (!suffix.empty() && '.' == suffix[0]) suffix = suffix.substr(1);
     pos = suffix.find('.') == suffix.npos ? suffix.length()
                                           : suffix.find('.') + 1;
     suffix = suffix.substr(pos, suffix.length() - pos);
@@ -238,8 +251,8 @@ class FileOperate {
                                          const std::string& type,
                                          const std::string& keyword = "") {
     std::vector<std::string> fl;
-    int _d_type =
-        type == "dir" ? static_cast<int>(DT_DIR) : static_cast<int>(~DT_DIR);
+    if (type != "dir" && type != "file") return fl;
+    const std::regex filter(keyword);
     DIR* fDir = opendir(dir.c_str());
     if (nullptr == fDir) {
       LOG(ERROR) << "Open directory[" << dir << "] failed!";
@@ -247,9 +260,15 @@ class FileOperate {
     }
     struct dirent* end = nullptr;
     while ((end = readdir(fDir)) != nullptr) {
-      if (end->d_type & _d_type) {
+      const std::string name(end->d_name);
+      if (name == "." || name == "..") continue;
+      const std::string path = dir + "/" + name;
+      struct stat st;
+      if (stat(path.c_str(), &st) != 0) continue;
+      if ((type == "dir" && S_ISDIR(st.st_mode)) ||
+          (type == "file" && S_ISREG(st.st_mode))) {
         std::string fname = std::string(end->d_name);
-        if (std::regex_search(fname, std::regex(keyword)) ||
+        if (std::regex_search(fname, filter) ||
             fname.npos != fname.find(keyword) || keyword.length() <= 0) {
           fl.push_back(dir[dir.length() - 1] == '/' ? dir + end->d_name
                                                     : dir + "/" + end->d_name);
@@ -279,15 +298,24 @@ class FileOperate {
    */
   int MkdirsByPath(const std::string& p,
                        mode_t mode = S_IRWXU | S_IRWXG | S_IRWXO) {
-    if (access(p.c_str(), F_OK) != 0) {
-      int ret = MkdirsByPath(p.substr(0, p.rfind('/')), mode);
-      if (0 == ret) {
-        ret = mkdir(p.c_str(), mode);
-        if (0 != ret) LOG(ERROR) << "mkdir [" << p << "] Failed!";
-      }
-      return ret;
+    if (p.empty()) { errno = EINVAL; return -1; }
+    std::string path = p;
+    while (path.size() > 1 && path.back() == '/') path.pop_back();
+    struct stat st;
+    if (stat(path.c_str(), &st) == 0) {
+      if (S_ISDIR(st.st_mode)) return 0;
+      errno = ENOTDIR;
+      return -1;
     }
-    return 0;
+    if (errno != ENOENT) return -1;
+    const size_t slash = path.rfind('/');
+    if (slash != std::string::npos && slash != 0 &&
+        MkdirsByPath(path.substr(0, slash), mode) != 0) return -1;
+    if (mkdir(path.c_str(), mode) == 0) return 0;
+    // Another caller may have created the directory after stat().
+    if (errno == EEXIST && stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode))
+      return 0;
+    return -1;
   }
 
   /**
@@ -301,7 +329,7 @@ class FileOperate {
   template <typename T>
   int WriteTo(const std::string& f, const T& buf,
                   std::ios::openmode m = std::ios::out) {
-    std::ofstream _of(f);
+    std::ofstream _of(f, m);
     if (!_of.is_open()) {
       LOG(ERROR) << "File[" << f << "] open failed!!!";
       return -1;

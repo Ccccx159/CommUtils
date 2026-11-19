@@ -54,3 +54,22 @@ foreach(source_file ${unittest_sources_list})
           )
   
 endforeach()
+
+set(commutils_public_headers
+  backtrace_.h datetime_.h file_.h guest_agent_.h logger_.h
+  ring_buffer.h sys_utils_.h tracer_.h commutils.h)
+set(commutils_header_checks "")
+foreach(header IN LISTS commutils_public_headers)
+  string(REPLACE "." "_" unit ${header})
+  set(source "${CMAKE_CURRENT_BINARY_DIR}/header_${unit}.cc")
+  file(GENERATE OUTPUT "${source}" CONTENT "#include <commutils/${header}>\n")
+  list(APPEND commutils_header_checks "${source}")
+endforeach()
+add_library(commutils_header_checks OBJECT ${commutils_header_checks})
+target_link_libraries(commutils_header_checks PRIVATE ${COMMUTILS_TARGET_NAME})
+
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if (Python3_Interpreter_FOUND)
+  add_test(NAME test_summarize_trace
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_summarize_trace.py)
+endif()

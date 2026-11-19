@@ -5,7 +5,7 @@
 #include <iomanip>
 #include <sstream>
 
-#include "commutils.h"
+#include <ctime>
 
 // g++ 5.0 一下版本需要自行实现 std::put_time() 和 std::get_time()
 #if defined(__GNUC__) && (__GNUC__ < 5)
@@ -120,13 +120,15 @@ class DateTime {
     auto now = system_clock::now();
     auto now_c = system_clock::to_time_t(now);
     std::stringstream ss;
-    ss << std::put_time(std::localtime(&now_c), fmt.c_str());
+    std::tm local_tm{};
+    if (localtime_r(&now_c, &local_tm) == nullptr) return "";
+    ss << std::put_time(&local_tm, fmt.c_str());
     return ss.str();
   }
 
 
   /**
-   * Returns the current system time in seconds since the epoch.
+   * Returns monotonic time in seconds from an unspecified origin.
    *
    * @return The current system time in seconds.
    */
@@ -139,7 +141,7 @@ class DateTime {
 
 
   /**
-   * Returns the current time in milliseconds since the epoch.
+   * Returns monotonic time in milliseconds from an unspecified origin.
    *
    * @return The current time in milliseconds.
    */
@@ -151,7 +153,7 @@ class DateTime {
   }
 
   /**
-   * Returns the current time in microseconds since the epoch.
+   * Returns monotonic time in microseconds from an unspecified origin.
    *
    * @return The current time in microseconds.
    */

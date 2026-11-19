@@ -19,6 +19,7 @@ if (COMMUTILS_WITH_SPDLOG)
   set(SPDLOG_FMT_EXTERNAL_HO ON)
   add_subdirectory(spdlog EXCLUDE_FROM_ALL)
   list(APPEND 3RDPARTY_LIB spdlog::spdlog_header_only)
+  list(APPEND 3RDPARTY_DEF _WITH_SPDLOG)
 endif()
 
 # using gtest

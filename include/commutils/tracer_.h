@@ -3,53 +3,69 @@
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <time.h>
+#include <unistd.h>
 
+#include <condition_variable>
+#include <cstdint>
+#include <deque>
+#include <fstream>
+#include <map>
+#include <mutex>
+#include <stdexcept>
 #include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 
-#include "commutils.h"
+#include "nlohmann/json.hpp"
 using json = nlohmann::json;
 
+// Linux thread CPU tracing. stop() drains accepted events and closes the file.
 class Tracer {
  private:
   struct Event {
-    std::string name;
-    std::string cat;
-    std::string ph;
-    uint64_t ts;
-    uint64_t tts;
-    uint64_t pid;
-    uint64_t tid;
-    json args;
-    int64_t involuntarily_preempted;
-    int64_t voluntarily_preempted;
-
-    Event() {
-      ts = 0;
-      tts = 0;
-      pid = 0;
-      tid = 0;
-      args = json::object();
-    }
+    std::string name, cat, ph;
+    int64_t ts = 0, tts = 0;
+    uint64_t pid = 0, tid = 0;
+    json args = json::object();
+    int64_t involuntarily_preempted = 0, voluntarily_preempted = 0;
   };
 
-  using ccque = moodycamel::ConcurrentQueue<Tracer::Event>;
-
  public:
-  void begin(const std::string& tag, const json& custom_args = json::object(),
-             const std::string& cat = "generic",
-             const std::string& phase = "B") {
-    event_stamp(tag, custom_args, cat, phase);
+  explicit Tracer(const std::string& path = "") {
+    trace_file_path_ = path.empty()
+        ? "./Tracer_Report_" + std::to_string(getpid()) + ".json" : path;
+    of_trace_file_.open(trace_file_path_);
+    if (!of_trace_file_) throw std::runtime_error("Trace report file open failed");
+    begin_wall_offset_ = ClockNs(CLOCK_MONOTONIC);
+    of_trace_file_ << "{\"traceEvents\":[\n";
+    report_thread_ = std::thread(&Tracer::report, this);
   }
 
-  void end(const std::string& tag, const json& custom_args = json::object(),
+  ~Tracer() { stop(); }
+  Tracer(const Tracer&) = delete;
+  Tracer& operator=(const Tracer&) = delete;
+
+  void begin(const std::string& tag, const json& args = json::object(),
+             const std::string& cat = "generic", const std::string& phase = "B") {
+    event_stamp(tag, args, cat, phase);
+  }
+
+  void end(const std::string& tag, const json& args = json::object(),
            const std::string& cat = "generic", const std::string& phase = "E") {
-    event_stamp(tag, custom_args, cat, phase);
+    event_stamp(tag, args, cat, phase);
   }
 
+  // Call from an owning thread, after instrumented worker threads have finished.
+  // Concurrent stop calls are allowed. Events submitted after stopping are ignored.
   void stop() {
-    // TODO:
-    stop_ = true;
-    return;
+    std::lock_guard<std::mutex> join_lock(stop_mutex_);
+    {
+      std::lock_guard<std::mutex> lock(queue_mutex_);
+      stop_ = true;
+    }
+    ready_.notify_one();
+    if (report_thread_.joinable()) report_thread_.join();
   }
 
   static Tracer& instance() {
@@ -57,136 +73,113 @@ class Tracer {
     return tracer;
   }
 
+  // Construct/destroy on the same thread, with the tracer outliving this scope.
+  class ScopedEvent {
+   public:
+    explicit ScopedEvent(const std::string& tag,
+                         const json& args = json::object(),
+                         const std::string& cat = "generic")
+        : ScopedEvent(Tracer::instance(), tag, args, cat) {}
+    ScopedEvent(Tracer& tracer, const std::string& tag,
+                const json& args = json::object(),
+                const std::string& cat = "generic")
+        : tracer_(tracer), tag_(tag), cat_(cat) {
+      tracer_.begin(tag_, args, cat_);
+    }
+    ~ScopedEvent() {
+      // Destruction must not interrupt exception unwinding in instrumented code.
+      try { tracer_.end(tag_, json::object(), cat_); } catch (...) {}
+    }
+    ScopedEvent(const ScopedEvent&) = delete;
+    ScopedEvent& operator=(const ScopedEvent&) = delete;
+   private:
+    Tracer& tracer_;
+    std::string tag_, cat_;
+  };
+
  private:
-  Tracer() : stop_(true) {
-    trace_file_path_ = "./Tracer_Report_" + std::to_string(getpid()) + ".json";
-    struct timespec wt, ct;
-    clock_gettime(CLOCK_MONOTONIC, &wt);
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ct);
-    begin_wall_offset_ = wt.tv_sec * 1000000000L + wt.tv_nsec;
-    struct timespec res;
-    clock_getres(CLOCK_THREAD_CPUTIME_ID, &res);
-    fprintf(stderr, "ThreadTracer: clock resolution: %ld nsec.\n", res.tv_nsec);
-    begin_wall_cutoff_ = begin_wall_offset_;
-    stop_ = false;
-
-    // TODO:
-    report_thread_ = std::thread(&Tracer::report, this);
+  static int64_t ClockNs(clockid_t clock) {
+    timespec ts{};
+    if (clock_gettime(clock, &ts) != 0)
+      throw std::runtime_error("clock_gettime failed");
+    return static_cast<int64_t>(ts.tv_sec) * 1000000000LL + ts.tv_nsec;
   }
 
-  virtual ~Tracer() {
-    // TODO
-    if (!stop_) {
-      stop_ = true;
-    }
-    report_thread_.join();
-    if (of_trace_file_.is_open()) {
-      of_trace_file_.close();
-    }
-  }
-
-  void report() {
-    // TODO
-    // 写入事件头信息
-    of_trace_file_.open(trace_file_path_);
-    if (!of_trace_file_.is_open()) {
-      stop_ = true;
-      LOG(ERROR) << "Trace report file open failed! " << trace_file_path_;
-      return;
-    }
-    of_trace_file_ << "{\"traceEvents\":[\n";
-    while (!stop_) {
-      struct Event e;
-      bool res = event_queue_.try_dequeue(e);
-      if (!res) {
-        DateTime().SleepMs(5);
-        continue;
-      }
-      if ("E" == e.ph) {
-        std::string key = std::to_string(e.tid) + e.name;
-        if (event_map_.find(key) != event_map_.end()) {
-          struct Event& be = event_map_[key];
-          int64_t preempted = e.involuntarily_preempted - be.involuntarily_preempted;
-          int64_t voluntary = e.voluntarily_preempted - be.voluntarily_preempted;
-          int64_t walldur = e.ts - be.ts;
-          int64_t cpudur = e.tts - be.tts;
-          int64_t dutycycle = 100 * cpudur / walldur;
-          e.args["preempted"] = preempted;
-          e.args["voluntary"] = voluntary;
-          e.args["dutycycle"] = dutycycle;
-        } else {
-          LOG(WARNING) << "tid: " << e.tid << " name: " << e.name
-                       << " not found begin event!";
-          continue;
-        }
-      } else {
-        std::string key = std::to_string(e.tid) + e.name;
-        event_map_[key] = e;
-      }
-      json je = json{{"name", e.name}, {"cat", e.cat},  {"ph", e.ph},
-                     {"ts", e.ts},     {"tts", e.tts},  {"pid", e.pid},
-                     {"tid", e.tid},   {"args", e.args}};
-      if (0 != event_cnt_) {
-        of_trace_file_ << ",\n";
-      }
-      of_trace_file_ << je;
-      event_cnt_++;
-
-      DateTime().SleepMs(5);
-    }
-    // 写入事件尾信息
-    of_trace_file_ << "\n]}\n";
-    of_trace_file_.close();
-    return;
-  }
-
-  int event_stamp(const std::string& tag, const json& custom_args,
-                  const std::string& cat, const std::string& phase) {
-    if (stop_) {
-      return 0;
-    }
-    const pid_t tid = static_cast<pid_t>(::syscall(SYS_gettid));
-    struct timespec wt, ct;
-    clock_gettime(CLOCK_MONOTONIC, &wt);
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ct);
-    struct rusage ru;
-    int rv;
-    rv = getrusage(RUSAGE_THREAD, &ru);
-    if (rv < 0) {
-      stop_ = true;
-      fprintf(stderr, "ThreadTracer: rusage() failed. Stopped Recording.\n");
-      return -1;
-    }
-    const int64_t wall_nsec = wt.tv_sec * 1000000000 + wt.tv_nsec;
-    const int64_t cpu_nsec = ct.tv_sec * 1000000000 + ct.tv_nsec;
-
-    if (wall_nsec < begin_wall_cutoff_) {
-      return -1;
-    }
-
-    struct Event e;
+  void event_stamp(const std::string& tag, const json& args,
+                   const std::string& cat, const std::string& phase) {
+    // The same lock gates shutdown and preserves each thread's submission order.
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    if (stop_) return;
+    if (!args.is_object()) throw std::invalid_argument("Trace args must be an object");
+    rusage usage{};
+    if (getrusage(RUSAGE_THREAD, &usage) != 0)
+      throw std::runtime_error("getrusage failed");
+    Event e;
     e.name = tag;
     e.cat = cat;
     e.ph = phase;
-    e.ts = wall_nsec - begin_wall_offset_;
-    e.tts = cpu_nsec;
+    e.ts = ClockNs(CLOCK_MONOTONIC) - begin_wall_offset_;
+    e.tts = ClockNs(CLOCK_THREAD_CPUTIME_ID);
     e.pid = static_cast<uint64_t>(getpid());
-    e.tid = static_cast<uint64_t>(tid);
-    e.involuntarily_preempted = ru.ru_nivcsw;
-    e.voluntarily_preempted = ru.ru_nvcsw;
-    e.args = custom_args;
-    event_queue_.enqueue(e);
-    return 0;
+    e.tid = static_cast<uint64_t>(syscall(SYS_gettid));
+    e.involuntarily_preempted = usage.ru_nivcsw;
+    e.voluntarily_preempted = usage.ru_nvcsw;
+    e.args = args;
+    event_queue_.push_back(std::move(e));
+    ready_.notify_one();
   }
 
- private:
-  ccque event_queue_;
-  std::unordered_map<std::string, struct Event> event_map_;
+  void report() {
+    using Key = std::pair<uint64_t, std::string>;
+    std::map<Key, std::vector<Event>> begins;
+    bool first = true;
+    for (;;) {
+      Event e;
+      {
+        std::unique_lock<std::mutex> lock(queue_mutex_);
+        ready_.wait(lock, [this] { return stop_ || !event_queue_.empty(); });
+        if (event_queue_.empty()) break;
+        e = std::move(event_queue_.front());
+        event_queue_.pop_front();
+      }
+      const Key key(e.tid, e.name);
+      if (e.ph == "B") {
+        begins[key].push_back(e);
+      } else if (e.ph == "E") {
+        auto it = begins.find(key);
+        if (it != begins.end() && !it->second.empty()) {
+          const Event& be = it->second.back();
+          const int64_t wall_ns = e.ts - be.ts;
+          const int64_t cpu_ns = e.tts - be.tts;
+          e.args["wall_time_us"] = wall_ns / 1000.0;
+          e.args["cpu_time_us"] = cpu_ns / 1000.0;
+          e.args["dutycycle"] = wall_ns > 0 ? 100.0 * cpu_ns / wall_ns : 0.0;
+          e.args["preempted"] = e.involuntarily_preempted - be.involuntarily_preempted;
+          e.args["voluntary"] = e.voluntarily_preempted - be.voluntarily_preempted;
+          it->second.pop_back();
+          if (it->second.empty()) begins.erase(it);
+        } else {
+          e.args["unmatched_begin"] = true;
+        }
+      }
+      // Chrome Trace Event timestamps are microseconds, including fractional parts.
+      json record = {{"name", e.name}, {"cat", e.cat}, {"ph", e.ph},
+                     {"ts", e.ts / 1000.0}, {"tts", e.tts / 1000.0},
+                     {"pid", e.pid}, {"tid", e.tid}, {"args", e.args}};
+      if (!first) of_trace_file_ << ",\n";
+      of_trace_file_ << record;
+      first = false;
+    }
+    of_trace_file_ << "\n]}\n";
+    of_trace_file_.close();
+  }
+
+  std::deque<Event> event_queue_;
+  std::mutex queue_mutex_, stop_mutex_;
+  std::condition_variable ready_;
+  bool stop_ = false;
   std::thread report_thread_;
-  std::atomic<bool> stop_;
   std::string trace_file_path_;
   std::ofstream of_trace_file_;
-  int64_t event_cnt_ = 0;
   int64_t begin_wall_offset_ = 0;
-  int64_t begin_wall_cutoff_ = 0;
 };

@@ -1,90 +1,61 @@
 #pragma once
-#include <dlfcn.h>
+
 #include <execinfo.h>
 #include <signal.h>
-#include <stdlib.h>
 #include <unistd.h>
 
-#include <iomanip>
-#include <iostream>
-#include <string>
-
-#include "commutils.h"
+#include <cstddef>
+#include <cstdint>
+#include <stdexcept>
 
 #define BACKTRACE_STACK_MAX_SIZE (16)
 
 class Backtrace {
- private:
-  Backtrace() { signal(SIGSEGV, SignalHandler); }
-
-  static void SignalHandler(int signo) {
-    LOG(FATAL) << "===========>>>Catch Signal " << signo << "<<<===========";
-    LOG(FATAL) << "dump stack begin...";
-    [] {
-      void* buf[BACKTRACE_STACK_MAX_SIZE];
-      int nptr = backtrace(buf, BACKTRACE_STACK_MAX_SIZE);
-      LOG(FATAL) << "backtrace() captured " << nptr << " addresses";
-      char** strings = backtrace_symbols(buf, nptr);
-      if (nullptr == strings) {
-        perror("backtrace_symbols");
-        exit(EXIT_FAILURE);
-      }
-      for (int i = 0; i < nptr; i++) {
-        std::string extra_info;
-        if (i == 3) {
-          // 使用正则匹配找到最后 [] 内的地址
-          std::string addr = strings[i];
-          addr = addr.substr(addr.rfind('[') + 1,
-                             addr.rfind(']') - addr.find('[') - 1);
-          // 将 addr 字符串转换为地址
-          void* p = (void*)std::stoul(addr, nullptr, 16);
-          // 使用dladdr函数获取地址对应的符号信息
-          Dl_info info;
-          if (dladdr(p, &info)) {
-            try {
-              extra_info = fmt::format(
-                  "segfault_addr:{:p}, symbol_file: {}, file_base: {:p}, "
-                  "symbol_name: {}, symbol_addr: {:p}",
-                  fmt::ptr(p), info.dli_fname, fmt::ptr(info.dli_fbase),
-                  info.dli_sname, info.dli_saddr);
-            } catch (const std::exception& e) {
-              extra_info = fmt::format(
-                  "segfault_addr:{:p}, symbol_file: {}, file_base: {:p}",
-                  fmt::ptr(p), info.dli_fname, fmt::ptr(info.dli_fbase));
-            }
-          }
-        }
-        LOG(FATAL) << '[' << std::setw(2) << std::setfill('0') << i << "] "
-                   << strings[i]  << " " << extra_info;
-      }
-      free(strings);
-    }();
-    LOG(FATAL) << "dump stack end...";
-    LOG(FATAL) << "===========>>>Catch Signal " << signo << "<<<===========";
-    std::string cmd("cat /proc/self/maps");
-    cmd.replace(cmd.find("self"), std::string("self").length(),
-                std::to_string(getpid()));
-    system(cmd.c_str());
-    std::cerr << "catch signal " << signo << std::endl;
-    signal(signo, SIG_DFL);
-    raise(signo);
-  }
-
  public:
+  // Explicit opt-in: merely including this header never changes signal handlers.
   static Backtrace& GetBacktraceInstance() {
     static Backtrace ins;
     return ins;
   }
-};
 
-class BacktraceInitializer {
- public:
-  BacktraceInitializer() {
-    // 在这里执行初始化代码
-    Backtrace::GetBacktraceInstance();
-    // LOG(WARN) << "Initializer  " << &bt;
+  // Full stack unwinding is only available in normal execution context.
+  // For fatal faults use the fault address below and the OS core dump.
+  static void DumpStack(int fd = STDERR_FILENO) {
+    void* frames[BACKTRACE_STACK_MAX_SIZE];
+    const int count = backtrace(frames, BACKTRACE_STACK_MAX_SIZE);
+    backtrace_symbols_fd(frames, count, fd);
+  }
+
+ private:
+  Backtrace() {
+    struct sigaction action{};
+    action.sa_sigaction = SignalHandler;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = SA_SIGINFO | SA_RESETHAND;
+    if (sigaction(SIGSEGV, &action, nullptr) != 0)
+      throw std::runtime_error("Failed to install SIGSEGV handler");
+  }
+
+  static void SignalHandler(int signo, siginfo_t* info, void*) {
+    // Only stack buffers and async-signal-safe calls; no logger, heap or shell.
+    static const char message[] = "catch signal SIGSEGV, fault address: 0x";
+    write(STDERR_FILENO, message, sizeof(message) - 1);
+    const uintptr_t addr = reinterpret_cast<uintptr_t>(info->si_addr);
+    char hex[sizeof(uintptr_t) * 2 + 1];
+    for (size_t i = 0; i < sizeof(uintptr_t) * 2; ++i) {
+      const unsigned shift = static_cast<unsigned>((sizeof(uintptr_t) * 2 - 1 - i) * 4);
+      hex[i] = "0123456789abcdef"[(addr >> shift) & 0xf];
+    }
+    hex[sizeof(hex) - 1] = '\n';
+    write(STDERR_FILENO, hex, sizeof(hex));
+    // SA_RESETHAND restores the default disposition before entry. The pending
+    // signal terminates the process (and permits a core dump) on handler return.
+    raise(signo);
   }
 };
 
-// 定义全局对象
-static BacktraceInitializer backtrace_initializer;
+// Retained for callers who explicitly want an initializer object.
+class BacktraceInitializer {
+ public:
+  BacktraceInitializer() { Backtrace::GetBacktraceInstance(); }
+};

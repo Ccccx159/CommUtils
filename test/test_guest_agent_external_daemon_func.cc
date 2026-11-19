@@ -10,9 +10,9 @@ void* ExternalDaemonFunc(void* arg) {
     LOG(ERROR) << "Agent file " << info->agent_file_ << " open failed";
     throw std::runtime_error("Agent file open failed");
   }
-  while (true) {
+  while (!info->StopRequested()) {
     ofs_agent_file << "Hello, world!" << std::endl;
-    std::this_thread::sleep_for(std::chrono::seconds(1));
+    if (info->WaitForStop(1000)) break;
   }
   return nullptr;
 }

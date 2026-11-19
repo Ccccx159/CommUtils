@@ -1,21 +1,9 @@
-
-# -----------------------------------------------------------------------------
-# download external depend
-# -----------------------------------------------------------------------------
-if (NOT sdk)
-  execute_process(COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_pre.py -p ${platform} RESULT_VARIABLE result)
-else()
-  execute_process(COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_pre.py -p ${platform} -s ${sdk} RESULT_VARIABLE result)
-endif()
-if (NOT ${result} EQUAL 0)
-  message("Error: python3 ${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_pre.py -p ${platform} -s ${sdk} Failed!")
-  message(FATAL_ERROR "Stopping configuration!")
-endif()
-
 # -----------------------------------------------------------------------------
 # cmake minimum
 # -----------------------------------------------------------------------------
 cmake_minimum_required(VERSION 3.15)
+
+set(platform "linux64" CACHE STRING "Target platform")
 
 # -----------------------------------------------------------------------------
 # Start project

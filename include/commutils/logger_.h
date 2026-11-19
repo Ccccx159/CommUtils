@@ -1,18 +1,17 @@
 #pragma once
 
 #ifdef _WITH_SPDLOG
+#undef SPDLOG_ACTIVE_LEVEL
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include "spdlog/spdlog.h"
+#include <typeinfo>
 
 #define LOG_DEFAULT_PATTERN "[%Y-%m-%d %T.%e] [%^%l%$] [%s:%#] [%!] [t %t] %v"
 #define LOG_DEFAULT_LEVEL spdlog::level::debug
 
-#undef SPDLOG_ACTIVE_LEVEL
-#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
-
 #define INITIALIZE_DEFAULT_LOGGER(pattern_, level_)            \
   do {                                                         \
-    if (typeid(pattern_) == typeid(std::string) &&             \
-        std::string(pattern_).length() > 0) {                  \
+    if (std::string(pattern_).length() > 0) {                  \
       spdlog::set_pattern(pattern_);                           \
     } else {                                                   \
       spdlog::set_pattern(LOG_DEFAULT_PATTERN);                \
@@ -56,7 +55,7 @@ class Logger {
   ~Logger() {
     spdlog::default_logger_raw()->log(
         spdlog::source_loc(file_name_, line_, function_name_), level_,
-        msg_.str());
+        "{}", msg_.str());
   }
   template <typename T>
   Logger &operator<<(const T &msg) {
@@ -123,6 +122,8 @@ struct info {
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <mutex>
+#include <ctime>
 
 
 #define TRACE "trace"
@@ -145,6 +146,11 @@ struct info {
 
 // 简单封装 spdlog，使其支持流式输出，此时仅支持 C++ stream 输出标准格式化模式
 // 兼容 glog 用法
+inline std::mutex& CommutilsLogMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
 class Logger {
  public:
   Logger(std::string level, const char *file_namem, const char *function_name,
@@ -156,7 +162,10 @@ class Logger {
   ~Logger() {
     using namespace std::chrono;
     auto now = system_clock::to_time_t(system_clock::now());
-    std::cout << "[" << std::put_time(localtime(&now), "%F %T") << "] ["
+    std::tm local_tm{};
+    localtime_r(&now, &local_tm);
+    std::lock_guard<std::mutex> lock(CommutilsLogMutex());
+    std::cout << "[" << std::put_time(&local_tm, "%F %T") << "] ["
               << logger_color_map[level_] << level_ << logger_color_map[RESET]
               << "] ["
               << std::string(file_name_)
@@ -199,7 +208,10 @@ void Logger_fmt(std::string const &level, const char *file_name,
       {WARNING, "\033[1;33m"},     {ERROR, "\033[1;31m"},
       {CRITICAL, "\033[1;41;37m"}, {RESET, "\033[0m"},
   };
-  std::cout << "[" << std::put_time(localtime(&now), "%F %T") << "] ["
+  std::tm local_tm{};
+  localtime_r(&now, &local_tm);
+  std::lock_guard<std::mutex> lock(CommutilsLogMutex());
+  std::cout << "[" << std::put_time(&local_tm, "%F %T") << "] ["
             << logger_color_map[level] << level
             << logger_color_map[RESET] << "] ["
             << std::string(file_name).substr(
@@ -229,8 +241,6 @@ void Logger_fmt(std::string const &level, const char *file_name,
   Logger_fmt(CRITICAL, __builtin_FILE(), __builtin_FUNCTION(), \
              __builtin_LINE(), __VA_ARGS__)
 
-#define LOG_FATAL(...) LOG_CRITICAL(__VA_ARGS__)
-#define LOG_WARNING(...) LOG_WARN(__VA_ARGS__)
 
 #undef LOG_DEFAULT_PATTERN
 #undef LOG_DEFAULT_LEVEL
@@ -241,3 +251,6 @@ void Logger_fmt(std::string const &level, const char *file_name,
   } while (0)
 
 #endif
+
+#define LOG_FATAL(...) LOG_CRITICAL(__VA_ARGS__)
+#define LOG_WARNING(...) LOG_WARN(__VA_ARGS__)
